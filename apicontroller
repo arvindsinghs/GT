@@ -1,0 +1,191 @@
+<?php
+namespace frontend\controllers;
+use Yii;
+use yii\rest\Controller;
+use common\models\RegistrationForm;
+use dektrium\user\models\ResendForm;
+use common\models\User;
+use common\models\Profile;
+use dektrium\user\traits\AjaxValidationTrait;
+use dektrium\user\traits\EventTrait;
+use yii\db\Expression;
+use common\models\Messages;
+use common\models\MessagesSearch;
+use common\models\MessagesRecipients;
+use yii\db\Query;
+use yii\db\Command;
+use yii\web\Response;
+use frontend\controllers\ApiResponderBase;
+use dektrium\user\models\Token;
+use dektrium\user\models\RecoveryForm;
+
+class ApiController extends Controller
+{
+   
+    // Const APPLICATION_ID = 'ASCCPE';
+    // private $format = 'json';
+
+    const EVENT_AFTER_REQUEST = 'afterRequest';
+    public function actionRegister()
+    {
+        \Yii::$app->response->format = Response::FORMAT_JSON;
+        $atts = \Yii::$app->request->get();
+      
+        if($atts['method'] == 'post'){
+        	$user = User::find()->where(['email' =>	$atts['email']])->one();
+        	//echo '<pre>'; print_r($user);die;
+    		if (empty($user)) {	 	
+    		    $user = \Yii::createObject([
+    	            'class'    => User::className(),
+    	            'scenario' => 'create',
+    	        ]);
+    	        
+    			$user->email = $atts['email'];
+    			$user->username = $atts['username'];
+    			$user->password = $atts['password'];
+    			$user->device_os = $atts['device_os'];
+    			$user->device_name = $atts['device_name'];
+    			$user->fcm_token = $atts['fcm_token'];
+    			
+    			if($user->create()) {							
+    			
+                 	$profile = $user->profile;
+    		    	$profileRecords = [
+    		    	    'gender' => $atts['gender'],
+    		    	    'age' => $atts['age'],
+    		    	    'country' => $atts['country'],
+    		    	    ];
+    		    
+    		    	$profile->updateAttributes($profileRecords);
+    		    
+    		    	Yii::$app->user->switchIdentity($user);
+    		    	$this->sendmessagewelcome($user->getid());
+    		   	return [
+                        'message' => 'User successfully created',
+                        'data' => $user,
+                        'status' => 200
+                    ];
+    			}
+    			else { 
+    			    return [
+                        'message' => 'Please enter unique username',
+                        'status' => 401
+                    ];
+    			}
+    		}else {
+    		    return [
+                    'message' => 'User already exist',
+                    'status' => 401
+                ];
+    		}
+        }else{
+            throw new \yii\web\NotFoundHttpException();
+        }
+    }
+    
+    public function actionLogin()
+    {
+      $atts = \Yii::$app->request->get();
+      if($atts['method'] == 'post'){
+    
+    	\Yii::$app->response->format = Response::FORMAT_JSON;
+        	return ApiResponderBase::initializeRequestWithCredentials($atts);
+          }else{
+                throw new \yii\web\NotFoundHttpException();
+        }
+    
+    }
+    public function actionResetusername()
+    {
+      $atts = \Yii::$app->request->get();
+        
+      if($atts['method'] == 'post'){
+         	$user = User::find()->where(['email' =>	$atts['email']])->one();
+          	
+          	if(!empty($user)){
+                   $obj = new User();
+                  $obj->resetUsername($atts['email'], $user->username);
+                 return [
+                        'message' => 'Your username has been sent by email!',
+                        'data' => $user,
+                        'status' => 200
+                    ];
+          	}else{
+          	    
+                return [
+                    'message' => 'Email address not exist',
+                    'status' => 401
+                ];
+          	}
+    
+          }else{
+                throw new \yii\web\NotFoundHttpException();
+        }
+    
+        
+    }
+   public function actionResetpassword()
+    {
+     		//$atts = \Yii::$app->request->get();
+    	echo "test text"; exit();
+     		$postData = yii::$app->request->post();
+     		var_dump($postData); exit; 
+            $user = User::find()->where(['email' =>	$atts['email']])->one();        	
+        	if(!empty($user))
+        	{
+                /** @var Token $token */
+               $token = \Yii::createObject([
+                    'class' => Token::className(),
+                    'user_id' => $user->id,
+                    'type' => Token::TYPE_RECOVERY,
+                ]);
+              if (!$token->save(false)) {
+                    return false;
+                }
+               // die('kiee');
+               $obj = new User();
+             $obj->passwordLink($atts['email'], $token->url);
+               return [
+                        'message' => 'An email has been sent with instructions for resetting your password',
+                        'data' => $user,
+                        'status' => 200
+                    ];
+            }
+            else
+            {
+                return [
+                    'message' => 'Email address not exist',
+                    'status' => 401
+                ];
+          	}
+
+    }
+    private function sendmessagewelcome($userid){
+	    
+		if($userid){
+			$model = new Messages();
+			$mess = Messages::find()->max('thread_id');
+			$model->sender_id = 1;
+			$model->thread_id = $mess + 1;
+			$model->date_sent = new Expression('NOW()');
+			$model->subject = "Welcome to GirlsTravelling.com";
+			$model->message = "Dear Member</br>Thanks for signing up to http://www.girlstravelling.com! Some quick suggestions to enjoy more our website:<br/>
+			1. Upload your profile photo as soon as you can because a profile without a photo decrease of 90% your chances to get contacted by other members! 
+			Please find a nice and clear photo of yourself and click ”MY PICTURE” in the left menu of your user control area to upload it online.<br/>
+			2. Add a short description of yourself and explain what you are looking for here.<br/>
+			3. Post your next trips around the world in our Trips map area so that you can find other people travelling or wishing to travel with you!<br/><br/> Don’t hesitate to contact me for any problem or technical support!<br/><br/>
+			Best Regards,<br/>
+			Carinne<br/>
+			administrator<br/>
+			https://www.GirlsTravelling.com";
+			if($model->save()){
+				$recepient = new MessagesRecipients();
+				$recepient->thread_id = $model->thread_id;
+				$recepient->user_id = $userid;
+				$recepient->unread_count = 1;
+				$recepient->save();					
+			}
+		}
+    } 
+    
+}
